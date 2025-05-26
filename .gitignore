@@ -16,3 +16,5 @@ env/
 media/
 
 django_app/staticfiles/
+django_app/main/static/css
+django_app/main/static/js
