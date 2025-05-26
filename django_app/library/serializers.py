@@ -6,10 +6,11 @@ serializers for the `Book` and `User` models, which handle the conversion
 of model instances to and from JSON representations.
 """
 from typing import Any
-
+from datetime import date
 from rest_framework import serializers
 from django.contrib.auth.models import User
-from .models import Book
+from .models import Book, Task
+
 
 
 class BookSerializer(serializers.ModelSerializer):
@@ -77,3 +78,21 @@ class UserSerializer(serializers.ModelSerializer):
             password=validated_data['password']
         )
         return user
+
+class TaskSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Task
+        fields = ['title', 'description', 'due_date']
+
+    def validate_due_date(self, value):
+        if value < date.today():
+            raise serializers.ValidationError("Due date cannot be in the past.")
+        return value
+
+
+class TaskWithUserSerializer(serializers.ModelSerializer):
+    user = UserSerializer()
+
+    class Meta:
+        model = Task
+        fields = ['title', 'description', 'due_date', 'user']
