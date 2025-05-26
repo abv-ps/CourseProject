@@ -1,0 +1,159 @@
+services:
+  api:
+    build: ./fastapi_app
+    working_dir: /app/fastapi_app
+    env_file:
+      - .env
+    command: ./start.sh
+    volumes:
+      - .:/app
+    depends_on:
+      - postgres-fastapi
+      - kafka
+    ports:
+      - "7000:7000"
+
+  postgres-fastapi:
+    image: postgres:17.4
+    env_file:
+      - .env
+    environment:
+      POSTGRES_DB: ${FASTAPI_POSTGRES_DB}
+      POSTGRES_USER: ${FASTAPI_POSTGRES_USER}
+      POSTGRES_PASSWORD: ${FASTAPI_POSTGRES_PASSWORD}
+    ports:
+      - "5433:5432"
+    volumes:
+      - mydbdata:/var/lib/postgresql/data
+
+  custom_postgres:
+    image: postgres:17.4
+    env_file:
+      - .env
+    environment:
+      POSTGRES_DB: ${DJANGO_POSTGRES_DB}
+      POSTGRES_USER: ${DJANGO_POSTGRES_USER}
+      POSTGRES_PASSWORD: ${DJANGO_POSTGRES_PASSWORD}
+    ports:
+      - "5432:5432"
+    volumes:
+      - mydb_data:/var/lib/postgresql/data
+
+  rabbitmq:
+    image: rabbitmq:4.0.9
+    container_name: rabbitmq
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
+      RABBITMQ_DEFAULT_VHOST: ${RABBITMQ_VHOST}
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+
+  redis:
+    image: redis:7.4.2
+    container_name: redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+  web:
+    build: ./django_app
+    working_dir: /app/django_app
+    env_file:
+      - .env
+    command: ./start.sh
+    volumes:
+      - .:/app
+      - media_data:/app/media/
+    depends_on:
+      - custom_postgres
+      - redis
+      - rabbitmq
+      - kafka
+    ports:
+      - "8000:8000"
+
+  kafka-consumer:
+    build: ./django_app
+    command: python commands/kafka_consumer.py
+    environment:
+      - PYTHONPATH=/app
+    depends_on:
+      - web
+      - kafka
+      - custom_postgres
+    env_file:
+      - .env
+
+  celery:
+    build: ./django_app
+    env_file:
+      - .env
+    command: ./django_app/celery_tasks/start_celery.sh
+    depends_on:
+      - rabbitmq
+    volumes:
+      - .:/app
+    working_dir: /app
+    environment:
+      - PYTHONPATH=/app/django_app
+
+  celery-beat:
+    build: ./django_app
+    command: celery -A celery_tasks beat --loglevel=info
+    depends_on:
+      - rabbitmq
+    volumes:
+      - .:/app
+    env_file:
+      - .env
+    working_dir: /app
+    environment:
+      - PYTHONPATH=/app/django_app
+
+  flower:
+    image: mher/flower:2.0.1
+    environment:
+      - CELERY_BROKER_URL=${CELERY_BROKER_URL}
+    ports:
+      - "5555:5555"
+    depends_on:
+      - rabbitmq
+    env_file:
+      - .env
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    volumes:
+      - zookeeper_data:/var/lib/zookeeper/data
+
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    ports:
+      - "9092:9092"
+      - "9093:9093"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:9093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+    depends_on:
+      - zookeeper
+
+volumes:
+  kafka_data:
+  mydb_data:
+  mydbdata:
+  media_data:
+  rabbitmq_data:
+  redis_data:
+  zookeeper_data:
